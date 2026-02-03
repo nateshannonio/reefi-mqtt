@@ -1,0 +1,69 @@
+# ReeFi MQTT Bridge Configuration
+# Copy this file to config.yaml and update with your settings
+
+# ============================================================
+# MQTT Broker Configuration
+# ============================================================
+mqtt:
+  broker: localhost          # MQTT broker hostname or IP
+  port: 1883                 # MQTT broker port (1883 for non-SSL, 8883 for SSL)
+  username: null             # MQTT username (null if not required)
+  password: null             # MQTT password (null if not required)
+  client_id: reefi-mqtt-bridge
+  
+  # SSL/TLS Configuration (optional)
+  use_tls: false             # Enable SSL/TLS
+  ca_certs: null             # Path to CA certificate (if use_tls is true)
+  
+  # MQTT Settings
+  qos: 1                     # Quality of Service (0, 1, or 2)
+  retain: true               # Retain messages
+
+# ============================================================
+# ReeFi Device Configuration
+# ============================================================
+devices:
+  - id: reefi_uno_pro_1      # Unique identifier (lowercase, underscores only)
+    name: Reefi Uno Pro 1    # Friendly name (displayed in Home Assistant)
+    ip: 192.168.1.100        # IP address of the ReeFi device
+    enabled: true            # Enable/disable this device
+  
+  - id: reefi_uno_pro_2
+    name: Reefi Uno Pro 2
+    ip: 192.168.1.101
+    enabled: true
+  
+  # Add more devices as needed
+  # - id: reefi_uno_pro_3
+  #   name: Frag Tank Light
+  #   ip: 192.168.1.102
+  #   enabled: false
+
+# ============================================================
+# Polling Configuration
+# ============================================================
+polling:
+  interval: 10               # How often to poll ReeFi devices (in seconds)
+  timeout: 5                 # HTTP request timeout (in seconds)
+  publish_on_change: true    # Only publish when values change (reduces MQTT traffic)
+
+# ============================================================
+# MQTT Topics Configuration
+# ============================================================
+topics:
+  prefix: homeassistant/sensor      # MQTT topic prefix for sensor data
+  discovery: homeassistant          # Home Assistant MQTT discovery prefix
+
+# ============================================================
+# General Settings
+# ============================================================
+settings:
+  temperature_unit: C        # Temperature unit ('C' for Celsius, 'F' for Fahrenheit)
+  
+# ============================================================
+# Logging Configuration
+# ============================================================
+logging:
+  level: INFO                # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  file: /var/log/reefi-mqtt.log  # Log file path (null to disable file logging)
+  console: true              # Enable logging to console

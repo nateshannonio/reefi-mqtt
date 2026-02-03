@@ -1,0 +1,17 @@
+[Unit]
+Description=ReeFi MQTT Bridge Auto-Update Timer
+Requires=reefi-mqtt-update.service
+
+[Timer]
+# Run at 3 AM daily
+OnCalendar=daily
+OnCalendar=*-*-* 03:00:00
+
+# Run 5 minutes after boot (in case system was off at 3 AM)
+OnBootSec=5min
+
+# If missed (system was off), run as soon as possible
+Persistent=true
+
+[Install]
+WantedBy=timers.target

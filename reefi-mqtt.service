@@ -1,0 +1,25 @@
+[Unit]
+Description=ReeFi MQTT Bridge
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=REEFI_USER
+Group=REEFI_USER
+WorkingDirectory=REEFI_REPO_DIR
+ExecStart=/usr/bin/python3 REEFI_REPO_DIR/reefi_mqtt.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target

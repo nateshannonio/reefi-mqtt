@@ -1,0 +1,108 @@
+name: Bug Report
+description: Report a bug or issue with the ReeFi MQTT Bridge
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us resolve it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of the bug
+      placeholder: What's going wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Install bridge
+        2. Configure with ...
+        3. Start service
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happens?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output (from `journalctl -u reefi-mqtt -n 50`)
+      render: shell
+      placeholder: Paste logs here
+
+  - type: input
+    id: version
+    attributes:
+      label: Bridge Version
+      description: Version of reefi-mqtt (check CHANGELOG.md or git tag)
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python Version
+      description: Output of `python3 --version`
+      placeholder: Python 3.11.2
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: OS and version
+      placeholder: Ubuntu 22.04, Raspberry Pi OS Bullseye, etc.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ha-version
+    attributes:
+      label: Home Assistant Version
+      options:
+        - "2024.1+"
+        - "2023.x"
+        - "2022.x"
+        - "Other (specify in additional info)"
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your config.py (REDACT passwords/IPs!)
+      render: python
+      placeholder: |
+        MQTT_BROKER = 'localhost'
+        REEFI_DEVICES = [...]
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Anything else that might be helpful

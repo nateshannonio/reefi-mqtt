@@ -1,0 +1,52 @@
+# .github/workflows/release.yml
+#
+# Automatically create releases when tags are pushed
+# Usage: git tag v1.0.1 && git push --tags
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Create tarball
+        run: |
+          # Create clean distribution without git files
+          mkdir -p reefi-mqtt
+          cp -r *.py *.sh *.md *.txt LICENSE docs/ reefi-mqtt/
+          tar -czf reefi-mqtt-${{ steps.get_version.outputs.VERSION }}.tar.gz reefi-mqtt/
+          zip -r reefi-mqtt-${{ steps.get_version.outputs.VERSION }}.zip reefi-mqtt/
+          
+      - name: Extract changelog
+        id: changelog
+        run: |
+          # Extract changelog for this version
+          VERSION=${{ steps.get_version.outputs.VERSION }}
+          awk "/## \[${VERSION#v}\]/{flag=1; next} /## \[/{flag=0} flag" CHANGELOG.md > release_notes.txt || echo "See CHANGELOG.md for details" > release_notes.txt
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: release_notes.txt
+          files: |
+            reefi-mqtt-${{ steps.get_version.outputs.VERSION }}.tar.gz
+            reefi-mqtt-${{ steps.get_version.outputs.VERSION }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

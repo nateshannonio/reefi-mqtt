@@ -1,0 +1,15 @@
+[Unit]
+Description=ReeFi MQTT Bridge Auto-Update
+After=network.target
+
+[Service]
+Type=oneshot
+User=REEFI_USER
+Group=REEFI_USER
+WorkingDirectory=REEFI_REPO_DIR
+ExecStart=/bin/bash REEFI_REPO_DIR/scripts/update.sh
+StandardOutput=journal
+StandardError=journal
+
+# Don't restart on failure (this is a one-shot update)
+Restart=no
