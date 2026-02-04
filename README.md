@@ -336,7 +336,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 ![ReeFi Device in Home Assistant](docs/images/ha-device.png)
 
 ### Dashboard
-Test
 
 ![ReeFi Dashboard](docs/images/dashboard.png)
 
