@@ -646,8 +646,10 @@ class ReefiBridge:
         return profiles
 
     def _handle_profile_command(self, device_id: str, ip: str, payload: str):
-        """Set a light profile by name"""
-        profile_name = payload.strip()
+        """Set a light profile by name. Payload can be 'ProfileName' or 'ProfileName,duration_minutes'"""
+        parts = payload.strip().split(',')
+        profile_name = parts[0].strip()
+        duration = int(parts[1].strip()) if len(parts) > 1 else None
 
         # Fetch profiles if not cached
         if device_id not in self._device_profiles or not self._device_profiles[device_id]:
@@ -669,8 +671,11 @@ class ReefiBridge:
 
         name, channels = match
         params = "&".join(f"nowch{ch.replace('ch', '')}={val}" for ch, val in channels.items())
+        if duration is not None:
+            params += f"&MMSetDelay={duration}"
         self._send_reefi_command(ip, params)
-        logger.info(f"[{device_id}] Set profile: {name} ({channels})")
+        logger.info(f"[{device_id}] Set profile: {name} ({channels})" +
+                     (f" for {duration}min" if duration else ""))
 
     def _handle_resume_command(self, device_id: str, ip: str):
         """Resume normal schedule by clearing manual mode timer"""
