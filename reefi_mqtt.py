@@ -527,7 +527,7 @@ class ReefiBridge:
             parts = topic.split('/')
             # reefi/<device_id>/master/set
             # reefi/<device_id>/channel/<ch>/set
-            if len(parts) < 4 or parts[0] != 'reefi':
+            if len(parts) < 3 or parts[0] != 'reefi':
                 return
 
             device_id = parts[1]
@@ -536,15 +536,15 @@ class ReefiBridge:
                 logger.error(f"Unknown device: {device_id}")
                 return
 
-            if parts[2] == 'master' and parts[3] == 'set':
+            if parts[2] == 'resume':
+                self._handle_resume_command(device_id, ip)
+            elif len(parts) >= 4 and parts[2] == 'master' and parts[3] == 'set':
                 self._handle_master_command(device_id, ip, payload)
-            elif parts[2] == 'channel' and len(parts) >= 5 and parts[4] == 'set':
+            elif len(parts) >= 5 and parts[2] == 'channel' and parts[4] == 'set':
                 channel = parts[3]
                 self._handle_channel_command(device_id, ip, channel, payload)
-            elif parts[2] == 'profile' and parts[3] == 'set':
+            elif len(parts) >= 4 and parts[2] == 'profile' and parts[3] == 'set':
                 self._handle_profile_command(device_id, ip, payload)
-            elif parts[2] == 'resume':
-                self._handle_resume_command(device_id, ip)
 
         except Exception as e:
             logger.error(f"Error handling command: {e}")
