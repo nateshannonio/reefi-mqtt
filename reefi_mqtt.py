@@ -352,6 +352,19 @@ class ReefiBridge:
                 json.dumps(ch_config), qos=qos, retain=retain
             )
 
+        # Resume schedule button
+        resume_config = {
+            "name": f"{device_name} Resume Schedule",
+            "unique_id": f"{device_id}_resume_schedule",
+            "command_topic": f"reefi/{device_id}/resume",
+            "icon": "mdi:calendar-clock",
+            "device": device_info
+        }
+        self.mqtt_client.publish(
+            f"{discovery_prefix}/button/{device_id}/resume_schedule/config",
+            json.dumps(resume_config), qos=qos, retain=retain
+        )
+
         logger.info(f"Published command discovery for {device_id}")
 
     def _fetch_reefi_data(self, ip: str) -> Optional[Dict]:
@@ -476,9 +489,10 @@ class ReefiBridge:
             device_id = device['id']
             self._device_ips[device_id] = device['ip']
 
-            # Subscribe to master brightness and per-channel commands
+            # Subscribe to master brightness, per-channel, and resume commands
             self.mqtt_client.subscribe(f"reefi/{device_id}/master/set")
             self.mqtt_client.subscribe(f"reefi/{device_id}/channel/+/set")
+            self.mqtt_client.subscribe(f"reefi/{device_id}/resume")
             logger.info(f"Subscribed to command topics for {device_id}")
 
     def _on_message(self, client, userdata, msg):
@@ -505,6 +519,8 @@ class ReefiBridge:
             elif parts[2] == 'channel' and len(parts) >= 5 and parts[4] == 'set':
                 channel = parts[3]
                 self._handle_channel_command(device_id, ip, channel, payload)
+            elif parts[2] == 'resume':
+                self._handle_resume_command(device_id, ip)
 
         except Exception as e:
             logger.error(f"Error handling command: {e}")
@@ -558,6 +574,11 @@ class ReefiBridge:
 
         except ValueError:
             logger.error(f"Invalid channel value: {payload}")
+
+    def _handle_resume_command(self, device_id: str, ip: str):
+        """Resume normal schedule by clearing manual mode timer"""
+        self._send_reefi_command(ip, "MMSetDelay=0")
+        logger.info(f"[{device_id}] Resumed normal schedule")
 
     def _send_reefi_command(self, ip: str, params: str):
         """Send a command to the ReeFi device via HTTP"""
