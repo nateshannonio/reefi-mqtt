@@ -70,11 +70,15 @@ logger = logging.getLogger('reefi-mqtt')
 
 class ReefiBridge:
     """Bridge between ReeFi HTTP API and MQTT"""
-    
+
+    # Map device IDs to their IPs for command routing
+    _device_ips = {}
+
     def __init__(self):
         self.mqtt_client = None
         self.running = False
         self.last_values = {}
+        self._device_ips = {}
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -90,9 +94,10 @@ class ReefiBridge:
         if rc == 0:
             logger.info("Connected to MQTT broker successfully")
             self._publish_discovery()
+            self._subscribe_commands()
         else:
             logger.error(f"Failed to connect to MQTT broker with code {rc}")
-    
+
     def _on_disconnect(self, client, userdata, rc):
         """MQTT disconnection callback"""
         if rc != 0:
@@ -107,6 +112,7 @@ class ReefiBridge:
         # Set callbacks
         self.mqtt_client.on_connect = self._on_connect
         self.mqtt_client.on_disconnect = self._on_disconnect
+        self.mqtt_client.on_message = self._on_message
         
         # Set authentication if configured
         username = mqtt_config.get('username')
@@ -240,13 +246,18 @@ class ReefiBridge:
             # Publish discovery for each sensor
             for sensor in sensors:
                 self._publish_sensor_discovery(
-                    device_id, 
-                    device_name, 
-                    sensor, 
+                    device_id,
+                    device_name,
+                    sensor,
                     device_info,
                     topics_config,
                     mqtt_config
                 )
+
+            # Publish discovery for command entities (number inputs)
+            self._publish_command_discovery(
+                device_id, device_name, device_info, topics_config, mqtt_config
+            )
     
     def _publish_sensor_discovery(self, device_id, device_name, sensor, device_info, topics_config, mqtt_config):
         """Publish discovery for a single sensor"""
@@ -288,6 +299,61 @@ class ReefiBridge:
         
         logger.debug(f"Published discovery for {unique_id}")
     
+    def _publish_command_discovery(self, device_id, device_name, device_info, topics_config, mqtt_config):
+        """Publish MQTT discovery for controllable entities"""
+        discovery_prefix = topics_config.get('discovery', 'homeassistant')
+        qos = mqtt_config.get('qos', 1)
+        retain = mqtt_config.get('retain', True)
+
+        # Master brightness (number entity, 0-200%)
+        master_config = {
+            "name": f"{device_name} Master Brightness",
+            "unique_id": f"{device_id}_master_brightness",
+            "command_topic": f"reefi/{device_id}/master/set",
+            "state_topic": f"reefi/{device_id}/master/state",
+            "min": 0,
+            "max": 200,
+            "step": 1,
+            "unit_of_measurement": "%",
+            "icon": "mdi:brightness-percent",
+            "device": device_info
+        }
+        self.mqtt_client.publish(
+            f"{discovery_prefix}/number/{device_id}/master_brightness/config",
+            json.dumps(master_config), qos=qos, retain=retain
+        )
+
+        # Per-channel brightness (number entities, 0-1000)
+        channels = [
+            ('ch0', 'CH0 UV (400nm)'),
+            ('ch1', 'CH1 Deep Violet (420nm)'),
+            ('ch2', 'CH2 Violet (435nm)'),
+            ('ch3', 'CH3 Royal Blue (450nm)'),
+            ('ch4', 'CH4 Blue (470nm)'),
+            ('ch5', 'CH5 Lime'),
+            ('ch6', 'CH6 Amber'),
+            ('ch7', 'CH7 Warm White'),
+            ('ch8', 'CH8 Cool White'),
+        ]
+        for ch_id, ch_name in channels:
+            ch_config = {
+                "name": f"{device_name} {ch_name} Set",
+                "unique_id": f"{device_id}_{ch_id}_set",
+                "command_topic": f"reefi/{device_id}/channel/{ch_id}/set",
+                "state_topic": f"homeassistant/sensor/{device_id}/{ch_id}/state",
+                "min": 0,
+                "max": 1000,
+                "step": 1,
+                "icon": "mdi:led-on",
+                "device": device_info
+            }
+            self.mqtt_client.publish(
+                f"{discovery_prefix}/number/{device_id}/{ch_id}_set/config",
+                json.dumps(ch_config), qos=qos, retain=retain
+            )
+
+        logger.info(f"Published command discovery for {device_id}")
+
     def _fetch_reefi_data(self, ip: str) -> Optional[Dict]:
         """Fetch data from ReeFi device"""
         polling_config = config.get('polling', {})
@@ -398,6 +464,116 @@ class ReefiBridge:
         if published_count > 0:
             logger.info(f"Published {published_count} updates for {device_id}")
     
+    def _subscribe_commands(self):
+        """Subscribe to MQTT command topics for all devices"""
+        devices = config.get('devices', [])
+        topics_config = config.get('topics', {})
+        discovery_prefix = topics_config.get('discovery', 'homeassistant')
+
+        for device in devices:
+            if not device.get('enabled', True):
+                continue
+            device_id = device['id']
+            self._device_ips[device_id] = device['ip']
+
+            # Subscribe to master brightness and per-channel commands
+            self.mqtt_client.subscribe(f"reefi/{device_id}/master/set")
+            self.mqtt_client.subscribe(f"reefi/{device_id}/channel/+/set")
+            logger.info(f"Subscribed to command topics for {device_id}")
+
+    def _on_message(self, client, userdata, msg):
+        """Handle incoming MQTT command messages"""
+        try:
+            topic = msg.topic
+            payload = msg.payload.decode().strip()
+            logger.info(f"Command received: {topic} = {payload}")
+
+            parts = topic.split('/')
+            # reefi/<device_id>/master/set
+            # reefi/<device_id>/channel/<ch>/set
+            if len(parts) < 4 or parts[0] != 'reefi':
+                return
+
+            device_id = parts[1]
+            ip = self._device_ips.get(device_id)
+            if not ip:
+                logger.error(f"Unknown device: {device_id}")
+                return
+
+            if parts[2] == 'master' and parts[3] == 'set':
+                self._handle_master_command(device_id, ip, payload)
+            elif parts[2] == 'channel' and len(parts) >= 5 and parts[4] == 'set':
+                channel = parts[3]
+                self._handle_channel_command(device_id, ip, channel, payload)
+
+        except Exception as e:
+            logger.error(f"Error handling command: {e}")
+
+    def _handle_master_command(self, device_id: str, ip: str, payload: str):
+        """Handle master brightness command (0-200 percent)"""
+        try:
+            master = int(float(payload))
+            master = max(0, min(200, master))
+
+            # Fetch current channel values
+            data = self._fetch_reefi_data(ip)
+            if not data:
+                logger.error(f"Cannot set master: failed to read current state from {ip}")
+                return
+
+            # Scale all channels by master percentage
+            params = []
+            for i in range(9):
+                ch_key = f'ch{i}'
+                if ch_key in data:
+                    scaled = int(data[ch_key] * master / 100)
+                    params.append(f"nowch{i}={scaled}")
+
+            if not params:
+                logger.error(f"No channel data to scale for {device_id}")
+                return
+
+            param_str = "&".join(params)
+            self._send_reefi_command(ip, param_str)
+            logger.info(f"[{device_id}] Set master brightness to {master}%")
+
+        except ValueError:
+            logger.error(f"Invalid master value: {payload}")
+
+    def _handle_channel_command(self, device_id: str, ip: str, channel: str, payload: str):
+        """Handle per-channel brightness command (0-1000)"""
+        try:
+            value = int(float(payload))
+            value = max(0, min(1000, value))
+
+            # Validate channel name (ch0-ch8 or nowch0-nowch8)
+            ch_num = channel.replace('ch', '').replace('now', '')
+            if not ch_num.isdigit() or int(ch_num) > 8:
+                logger.error(f"Invalid channel: {channel}")
+                return
+
+            param_str = f"nowch{ch_num}={value}"
+            self._send_reefi_command(ip, param_str)
+            logger.info(f"[{device_id}] Set channel {ch_num} to {value}")
+
+        except ValueError:
+            logger.error(f"Invalid channel value: {payload}")
+
+    def _send_reefi_command(self, ip: str, params: str):
+        """Send a command to the ReeFi device via HTTP"""
+        polling_config = config.get('polling', {})
+        timeout = polling_config.get('timeout', 5)
+
+        url = f"http://{ip}/Lrequests?NoUpdate=Save&{params}"
+        try:
+            resp = requests.get(url, timeout=timeout)
+            if resp.text.strip() == 'success':
+                logger.debug(f"Command sent to {ip}: {params}")
+            else:
+                logger.warning(f"Unexpected response from {ip}: {resp.text}")
+        except requests.RequestException as e:
+            logger.error(f"Failed to send command to {ip}: {e}")
+
     def _poll_devices(self):
         """Poll all enabled ReeFi devices"""
         devices = config.get('devices', [])
