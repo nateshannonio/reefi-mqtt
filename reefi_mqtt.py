@@ -670,10 +670,11 @@ class ReefiBridge:
             return
 
         name, channels = match
-        params = "&".join(f"nowch{ch.replace('ch', '')}={val}" for ch, val in channels.items())
+        # Set manual mode duration first so it's active before channel values arrive
         if duration is not None:
-            params += f"&MMSetDelay={duration}"
-        self._send_reefi_command(ip, params)
+            self._send_reefi_command(ip, f"MMSetDelay={duration}")
+        channel_params = "&".join(f"nowch{ch.replace('ch', '')}={val}" for ch, val in channels.items())
+        self._send_reefi_command(ip, channel_params)
         logger.info(f"[{device_id}] Set profile: {name} ({channels})" +
                      (f" for {duration}min" if duration else ""))
 
