@@ -79,6 +79,7 @@ class ReefiBridge:
         self.running = False
         self.last_values = {}
         self._device_ips = {}
+        self._device_profiles = {}  # device_id -> {profile_name: {ch0: val, ...}}
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -352,6 +353,23 @@ class ReefiBridge:
                 json.dumps(ch_config), qos=qos, retain=retain
             )
 
+        # Profile select (populated after profile fetch)
+        profiles = self._device_profiles.get(device_id, {})
+        if profiles:
+            profile_config = {
+                "name": f"{device_name} Profile",
+                "unique_id": f"{device_id}_profile_select",
+                "command_topic": f"reefi/{device_id}/profile/set",
+                "state_topic": f"homeassistant/sensor/{device_id}/mode/state",
+                "options": list(profiles.keys()),
+                "icon": "mdi:palette",
+                "device": device_info
+            }
+            self.mqtt_client.publish(
+                f"{discovery_prefix}/select/{device_id}/profile_select/config",
+                json.dumps(profile_config), qos=qos, retain=retain
+            )
+
         # Resume schedule button
         resume_config = {
             "name": f"{device_name} Resume Schedule",
@@ -489,11 +507,15 @@ class ReefiBridge:
             device_id = device['id']
             self._device_ips[device_id] = device['ip']
 
-            # Subscribe to master brightness, per-channel, and resume commands
+            # Subscribe to all command topics
             self.mqtt_client.subscribe(f"reefi/{device_id}/master/set")
             self.mqtt_client.subscribe(f"reefi/{device_id}/channel/+/set")
+            self.mqtt_client.subscribe(f"reefi/{device_id}/profile/set")
             self.mqtt_client.subscribe(f"reefi/{device_id}/resume")
             logger.info(f"Subscribed to command topics for {device_id}")
+
+            # Pre-fetch profiles for this device
+            self._device_profiles[device_id] = self._fetch_profiles(device['ip'])
 
     def _on_message(self, client, userdata, msg):
         """Handle incoming MQTT command messages"""
@@ -519,6 +541,8 @@ class ReefiBridge:
             elif parts[2] == 'channel' and len(parts) >= 5 and parts[4] == 'set':
                 channel = parts[3]
                 self._handle_channel_command(device_id, ip, channel, payload)
+            elif parts[2] == 'profile' and parts[3] == 'set':
+                self._handle_profile_command(device_id, ip, payload)
             elif parts[2] == 'resume':
                 self._handle_resume_command(device_id, ip)
 
@@ -574,6 +598,79 @@ class ReefiBridge:
 
         except ValueError:
             logger.error(f"Invalid channel value: {payload}")
+
+    def _fetch_profiles(self, ip: str) -> dict:
+        """Fetch light profiles from the ReeFi web UI"""
+        polling_config = config.get('polling', {})
+        timeout = polling_config.get('timeout', 5)
+
+        try:
+            resp = requests.get(f"http://{ip}/", timeout=timeout)
+            html = resp.text
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch profiles from {ip}: {e}")
+            return {}
+
+        profiles = {}
+        # Parse profile data: p0_name=Maintenance,p0_ch0=0,...
+        import re
+        # Find the new_values_p call with all profile definitions
+        match = re.search(r'new_values_p\("([^"]+)"\)', html)
+        if not match:
+            logger.warning(f"Could not find profile data in web UI for {ip}")
+            return profiles
+
+        data = match.group(1)
+        # Parse into individual key=value pairs
+        pairs = {}
+        for item in data.split(','):
+            if '=' in item:
+                k, v = item.split('=', 1)
+                pairs[k] = v
+
+        # Group by profile index
+        for i in range(20):
+            name_key = f'p{i}_name'
+            if name_key not in pairs:
+                continue
+            name = pairs[name_key]
+            channels = {}
+            for ch in range(9):
+                ch_key = f'p{i}_ch{ch}'
+                if ch_key in pairs:
+                    channels[f'ch{ch}'] = int(pairs[ch_key])
+            if channels:
+                profiles[name] = channels
+
+        logger.info(f"Loaded {len(profiles)} profiles from {ip}: {', '.join(profiles.keys())}")
+        return profiles
+
+    def _handle_profile_command(self, device_id: str, ip: str, payload: str):
+        """Set a light profile by name"""
+        profile_name = payload.strip()
+
+        # Fetch profiles if not cached
+        if device_id not in self._device_profiles or not self._device_profiles[device_id]:
+            self._device_profiles[device_id] = self._fetch_profiles(ip)
+
+        profiles = self._device_profiles.get(device_id, {})
+
+        # Case-insensitive lookup
+        match = None
+        for name, channels in profiles.items():
+            if name.lower() == profile_name.lower():
+                match = (name, channels)
+                break
+
+        if not match:
+            available = ', '.join(profiles.keys())
+            logger.error(f"[{device_id}] Unknown profile '{profile_name}'. Available: {available}")
+            return
+
+        name, channels = match
+        params = "&".join(f"nowch{ch.replace('ch', '')}={val}" for ch, val in channels.items())
+        self._send_reefi_command(ip, params)
+        logger.info(f"[{device_id}] Set profile: {name} ({channels})")
 
     def _handle_resume_command(self, device_id: str, ip: str):
         """Resume normal schedule by clearing manual mode timer"""
